@@ -15,6 +15,7 @@ type User struct {
 	Email     string
 	IsActive  bool
 	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // NewUser는 HTTP 외의 호출 경로에서도 동일한 가입 규칙을 적용한다.

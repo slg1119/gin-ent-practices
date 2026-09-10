@@ -40,7 +40,9 @@ go run ./src/cmd/api
 └── src/
     ├── cmd/api/main.go                 # 설정, DB 연결, 앱 조립 호출, 서버 시작·종료
     ├── ent/
-    │   ├── schema/user.go              # 직접 수정하는 DB 스키마
+    │   ├── schema/
+    │   │   ├── user.go                 # 사용자 DB 스키마
+    │   │   └── mixin/time.go           # 생성·수정 시각 공통 필드
     │   ├── generate.go                 # 코드 생성 명령
     │   └── ...                         # 자동 생성된 ORM 코드
     └── internal/
@@ -180,11 +182,13 @@ curl -X PATCH http://127.0.0.1:8080/api/v1/users/1/deactivate
   "name": "테스트 사용자",
   "email": "demo@example.com",
   "isActive": true,
-  "createdAt": "2026-09-09T00:00:00Z"
+  "createdAt": "2026-09-09T00:00:00Z",
+  "updatedAt": "2026-09-09T00:00:00Z"
 }
 ```
 
-ID와 생성 시각은 실제 저장 시 결정됩니다. 비활성화 응답은 `isActive: false`입니다.
+ID와 생성·수정 시각은 실제 저장 시 결정됩니다. 비활성화 응답은 `isActive: false`입니다.
+`updatedAt`은 반복 비활성화를 포함해 Ent로 수정할 때 갱신됩니다.
 생성 응답의 `Location` 헤더에는 해당 사용자의 조회 경로를 넣습니다.
 
 이름은 앞뒤 공백 제거 후 유니코드 코드 포인트 기준 1~100자여야 합니다.
@@ -216,6 +220,28 @@ ID와 생성 시각은 실제 저장 시 결정됩니다. 비활성화 응답은
 
 ## 스키마 변경과 검증
 
+`src/ent/schema/mixin/time.go`의 `mixin.Time`을 스키마에 추가하면 공통 시간 필드를 재사용합니다.
+현재 `User`에 적용되어 있습니다.
+
+```go
+func (User) Mixin() []ent.Mixin {
+    return []ent.Mixin{mixin.Time{}}
+}
+```
+
+- `created_at`: `Default(time.Now)`로 생성 시 설정하고 `Immutable()`로 Ent 수정 빌더에서 제외합니다.
+- `updated_at`: 생성 시 설정하고 `UpdateDefault(time.Now)`로 Ent의 단건·일괄 수정 시 갱신합니다.
+- 도메인 모델에는 `CreatedAt`, `UpdatedAt`, API 응답에는 `createdAt`, `updatedAt`으로 전달합니다.
+
+시간 필드 기본값은 각각 평가되므로 생성 직후 두 시각이 정확히 같다고 보장하지 않습니다.
+Ent에서 수정 시각을 명시하면 해당 값이 우선합니다. 직접 실행하는 SQL UPDATE에는
+자동 갱신이 적용되지 않으므로 `updated_at`도 직접 설정해야 합니다.
+
+`updated_at`에는 SQL 기본값 `CURRENT_TIMESTAMP`도 정의되어 있습니다.
+기존 데이터가 있는 SQLite DB는 다음 서버 시작 시 자동 마이그레이션으로 컬럼을 추가합니다.
+과거 수정 이력이 없는 기존 행의 `updated_at`은 마이그레이션 시각으로 채우고,
+기존 `created_at`과 사용자 데이터는 보존합니다.
+
 `src/ent/schema/`만 직접 수정하고 나머지 ORM 코드는 재생성합니다.
 현재 모듈의 Ent 버전으로 생성하도록 `generate.go`에 명령을 고정했습니다.
 
@@ -232,6 +258,8 @@ HTTP 통합 테스트도 `bootstrap.NewApplication`으로 앱을 구성해 실�
 규칙 검증, 입력 정규화, 동시 이메일 중복, 목록 페이지, 반복 비활성화,
 DB 재연결 후 데이터 보존, 취소된 컨텍스트, DB 실패 시 HTTP 응답을 검증합니다.
 또한 Echo의 라우팅 오류, 본문 제한, JSON Content-Type, panic 복구, 이미 전송된 응답 처리를 검증합니다.
+공통 시간 필드의 생성 기본값, 단건·일괄 수정 시각 갱신, 생성 시각 보존,
+기존 SQLite 데이터에 수정 시각 컬럼을 추가하는 마이그레이션도 검증합니다.
 
 ## 예제의 범위
 
@@ -241,6 +269,8 @@ DB 재연결 후 데이터 보존, 취소된 컨텍스트, DB 실패 시 HTTP �
 여러 저장소를 한 트랜잭션으로 묶는 기능은 아직 없으며, 필요해질 때 유스케이스 단위로 추가합니다.
 
 참고: [Ent 시작하기](https://entgo.io/docs/getting-started/),
+[Ent Mixin](https://entgo.io/docs/schema-mixin/),
+[Ent 필드 기본값](https://entgo.io/docs/schema-fields/#default-values),
 [Echo 오류 처리](https://echo.labstack.com/guide/error-handling/),
 [Echo 바인딩](https://echo.labstack.com/guide/binding/),
 [Go 인터페이스 가이드](https://go.dev/wiki/CodeReviewComments#interfaces).

@@ -18,6 +18,7 @@ type userResponse struct {
 	Email     string    `json:"email"`
 	IsActive  bool      `json:"isActive"`
 	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type listResponse struct {
@@ -29,6 +30,6 @@ type listResponse struct {
 func toResponse(u *user.User) userResponse {
 	return userResponse{
 		ID: u.ID, Name: u.Name, Email: u.Email,
-		IsActive: u.IsActive, CreatedAt: u.CreatedAt,
+		IsActive: u.IsActive, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
 	}
 }

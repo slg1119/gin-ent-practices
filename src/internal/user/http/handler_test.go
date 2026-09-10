@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gin-start/src/ent"
 	"gin-start/src/internal/bootstrap"
@@ -47,35 +48,47 @@ func TestAPILifecycle(t *testing.T) {
 		t.Fatalf("empty list must be [], got %s", empty.Body.String())
 	}
 	created := request(t, router, "POST", base, `{"name":"  테스트  ","email":" DEMO@EXAMPLE.COM "}`, 201)
-	var u struct {
-		ID        int    `json:"id"`
-		Name      string `json:"name"`
-		Email     string `json:"email"`
-		IsActive  bool   `json:"isActive"`
-		CreatedAt string `json:"createdAt"`
+	type responseUser struct {
+		ID        int       `json:"id"`
+		Name      string    `json:"name"`
+		Email     string    `json:"email"`
+		IsActive  bool      `json:"isActive"`
+		CreatedAt time.Time `json:"createdAt"`
+		UpdatedAt time.Time `json:"updatedAt"`
 	}
+	var u responseUser
 	if err := json.Unmarshal(created.Body.Bytes(), &u); err != nil {
 		t.Fatal(err)
 	}
 	path := base + "/" + strconv.Itoa(u.ID)
-	if u.ID <= 0 || u.Name != "테스트" || u.Email != "demo@example.com" || !u.IsActive || u.CreatedAt == "" || created.Header().Get("Location") != path {
+	if u.ID <= 0 || u.Name != "테스트" || u.Email != "demo@example.com" || !u.IsActive || u.CreatedAt.IsZero() || u.UpdatedAt.IsZero() || created.Header().Get("Location") != path {
 		t.Fatalf("unexpected user or Location: %s", created.Body.String())
 	}
 	var fields map[string]any
-	if err := json.Unmarshal(created.Body.Bytes(), &fields); err != nil || len(fields) != 5 {
+	if err := json.Unmarshal(created.Body.Bytes(), &fields); err != nil || len(fields) != 6 {
 		t.Fatalf("response fields = %v, error = %v", fields, err)
 	}
 	request(t, router, "GET", path, "", 200)
 	request(t, router, "POST", base, `{"name":"Other","email":"demo@example.com"}`, 409)
+	lastUpdatedAt := u.UpdatedAt
 	for range 2 {
 		inactive := request(t, router, "PATCH", path+"/deactivate", "", 200)
-		if !strings.Contains(inactive.Body.String(), `"isActive":false`) {
-			t.Fatalf("user remains active: %s", inactive.Body.String())
+		var updated responseUser
+		if err := json.Unmarshal(inactive.Body.Bytes(), &updated); err != nil {
+			t.Fatal(err)
 		}
+		if updated.IsActive || !updated.CreatedAt.Equal(u.CreatedAt) || updated.UpdatedAt.Before(lastUpdatedAt) {
+			t.Fatalf("unexpected deactivation response: %s", inactive.Body.String())
+		}
+		lastUpdatedAt = updated.UpdatedAt
 	}
 	got := request(t, router, "GET", path, "", 200)
-	if !strings.Contains(got.Body.String(), `"isActive":false`) {
-		t.Fatalf("inactive state not persisted: %s", got.Body.String())
+	var fetched responseUser
+	if err := json.Unmarshal(got.Body.Bytes(), &fetched); err != nil {
+		t.Fatal(err)
+	}
+	if fetched.IsActive || !fetched.CreatedAt.Equal(u.CreatedAt) || !fetched.UpdatedAt.Equal(lastUpdatedAt) {
+		t.Fatalf("inactive state or timestamp not persisted: %s", got.Body.String())
 	}
 }
 

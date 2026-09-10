@@ -69,7 +69,7 @@ func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*user.U
 }
 
 func (r *UserRepository) Deactivate(ctx context.Context, id int) (*user.User, error) {
-	// 상태 필드만 갱신하므로 이전에 읽은 이름/이메일로 다른 변경을 덮어쓰지 않는다.
+	// 상태와 mixin의 수정 시각을 갱신하고 이름/이메일을 덮어쓰지 않는다.
 	row, err := r.client.User.UpdateOneID(id).SetIsActive(false).Save(ctx)
 	if ent.IsNotFound(err) {
 		return nil, user.ErrNotFound

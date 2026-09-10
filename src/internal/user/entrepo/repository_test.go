@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"gin-start/src/ent"
+	entuser "gin-start/src/ent/user"
 	"gin-start/src/internal/database"
 	"gin-start/src/internal/user"
 	"gin-start/src/internal/user/entrepo"
@@ -37,7 +39,7 @@ func TestRepositoryLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if u.ID <= 0 || u.CreatedAt.IsZero() || !u.IsActive {
+		if u.ID <= 0 || u.CreatedAt.IsZero() || u.UpdatedAt.IsZero() || !u.IsActive {
 			t.Fatalf("generated values missing: %+v", u)
 		}
 		created = append(created, u)
@@ -63,6 +65,62 @@ func TestRepositoryLifecycle(t *testing.T) {
 		if _, err := operation(ctx, 999999); !errors.Is(err, user.ErrNotFound) {
 			t.Fatalf("missing ID error = %v", err)
 		}
+	}
+}
+
+func TestTimeMixinUpdatesTimestamps(t *testing.T) {
+	client, repo := newRepository(t)
+	ctx := t.Context()
+	createdAt := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+	updatedAt := createdAt.Add(time.Hour)
+
+	for _, operation := range []string{"single", "bulk"} {
+		t.Run(operation, func(t *testing.T) {
+			// 이전 시각을 명시해 sleep 없이 자동 갱신 여부를 확인한다.
+			row, err := client.User.Create().
+				SetName("Demo").SetEmail(operation + "@example.com").
+				SetCreatedAt(createdAt).SetUpdatedAt(updatedAt).Save(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if operation == "single" {
+				u, err := repo.Deactivate(ctx, row.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !u.CreatedAt.Equal(createdAt) || !u.UpdatedAt.After(updatedAt) {
+					t.Fatalf("update response timestamps = %+v", u)
+				}
+			} else {
+				if err := client.User.Update().Where(entuser.ID(row.ID)).SetName("Changed").Exec(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := repo.FindByID(ctx, row.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.CreatedAt.Equal(createdAt) || !got.UpdatedAt.After(updatedAt) {
+				t.Fatalf("persisted timestamps = %+v", got)
+			}
+			page, err := repo.List(ctx, 100, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, listed := range page {
+				if listed.ID != row.ID {
+					continue
+				}
+				found = true
+				if !listed.CreatedAt.Equal(createdAt) || !listed.UpdatedAt.Equal(got.UpdatedAt) {
+					t.Fatalf("list timestamp = %v, want %v", listed.UpdatedAt, got.UpdatedAt)
+				}
+			}
+			if !found {
+				t.Fatalf("updated user %d missing from list", row.ID)
+			}
+		})
 	}
 }
 
@@ -143,7 +201,7 @@ func TestDataSurvivesReopen(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.Close() })
 	got, err := entrepo.NewUserRepository(reopened).FindByID(t.Context(), u.ID)
-	if err != nil || got.Email != "demo@example.com" {
+	if err != nil || got.Email != "demo@example.com" || !got.CreatedAt.Equal(u.CreatedAt) || !got.UpdatedAt.Equal(u.UpdatedAt) {
 		t.Fatalf("reopened user = %+v, error = %v", got, err)
 	}
 }

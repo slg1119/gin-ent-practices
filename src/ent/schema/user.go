@@ -1,7 +1,7 @@
 package schema
 
 import (
-	"time"
+	"gin-start/src/ent/schema/mixin"
 
 	"entgo.io/ent"
 	"entgo.io/ent/schema/field"
@@ -12,11 +12,14 @@ type User struct {
 	ent.Schema
 }
 
+func (User) Mixin() []ent.Mixin {
+	return []ent.Mixin{mixin.Time{}}
+}
+
 func (User) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("name").NotEmpty(),
 		field.String("email").NotEmpty().MaxLen(254).Unique(),
 		field.Bool("is_active").Default(true),
-		field.Time("created_at").Default(time.Now).Immutable(),
 	}
 }

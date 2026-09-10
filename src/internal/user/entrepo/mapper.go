@@ -12,5 +12,6 @@ func toDomain(row *ent.User) *user.User {
 		Email:     row.Email,
 		IsActive:  row.IsActive,
 		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
 	}
 }
